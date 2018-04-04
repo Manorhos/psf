@@ -1,0 +1,12 @@
+[package]
+name = "psf"
+version = "0.1.0"
+authors = ["Manorhos <n.h.wiessner@gmail.com>"]
+
+[dependencies]
+flate2 = "1.0.1"
+crc = "^1.0.0"
+quick-error = "^1.0.0"
+nom = "3.2.1"
+byteorder = "1.2.2"
+
