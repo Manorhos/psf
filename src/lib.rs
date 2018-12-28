@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate nom;
 #[macro_use]
 extern crate quick_error;
@@ -39,6 +38,9 @@ quick_error! {
         ExeMergeError {
             description("Cannot merge EXEs")
         }
+        RecursionError {
+            description("Maximum recursion depth exceeded")
+        }
     }
 }
 
@@ -59,7 +61,7 @@ named!(rawpsf <&[u8], Psf>,
             Psf {
                 path: PathBuf::new(),
                 exe_crc32: exe_crc32,
-                reserved_area: exe.to_vec(),
+                _reserved_area: exe.to_vec(),
                 compressed_exe: exe.to_vec(),
                 tags: HashMap::new(),
             }
@@ -103,12 +105,11 @@ impl ExeHeader {
             sp: sp,
         })
     }
-
-
 }
 
 // "Superimposes" b upon a, thus merges the text sections of both into one,
-// with b taking priority over a and using b's initial register values.
+// with b taking priority over a. Destination address and length in the header
+// are adapted to the new, possibly larger EXE. PC and SP will carry over from "a".
 // a_data and b_data must contain exactly all of the text data for that specific EXE.
 fn merge_exes(a_data: &[u8], a_header: ExeHeader, b_data: &[u8], b_header: ExeHeader) -> (Vec<u8>, ExeHeader) {
     let mut new_header = a_header;
@@ -129,7 +130,7 @@ fn merge_exes(a_data: &[u8], a_header: ExeHeader, b_data: &[u8], b_header: ExeHe
 pub struct Psf {
     path: PathBuf,
     exe_crc32: u32,
-    reserved_area: Vec<u8>,
+    _reserved_area: Vec<u8>,
     compressed_exe: Vec<u8>,
     tags: HashMap<String, String>,
 }
@@ -139,7 +140,7 @@ impl Psf {
         where P: AsRef<Path>
     {
         let path_buf = path.as_ref().to_path_buf();
-        let mut file = File::open(&path_buf)?; 
+        let mut file = File::open(&path_buf)?;
         let mut file_contents = Vec::new();
         file.read_to_end(&mut file_contents)?;
 
@@ -176,6 +177,26 @@ impl Psf {
         }
     }
 
+    /// Returns `true` if the contained CRC32 checksum matches the one we calculate
+    /// from the compressed EXE, `false` otherwise.
+    pub fn is_checksum_valid(&self) -> bool {
+        crc::crc32::checksum_ieee(&self.compressed_exe) == self.exe_crc32
+    }
+
+    /// Converts the PSF file into a ready-to-run PS-EXE, merging possibly
+    /// referenced library PSFs together according to spec.
+    ///
+    /// # Note
+    /// Unfortunately, very large EXEs (nearing the 2 MB mark) appear to fail to load
+    /// using Caetla and the SYSTEM.CNF loading mechanism of the PSX BIOS. In my case
+    /// they still worked in emulators or when burning them to disc as "PSX.EXE" though.
+    pub fn fancy_exe(&self) -> Result<Vec<u8>, PsfError> {
+        self.fancy_exe_inner(0)
+    }
+
+    /// Decompresses the raw PS-EXE contained in this single PSF file and returns
+    /// it, untouched. Use `fancy_exe` if you want a PS-EXE ready to run in an emulator
+    /// or on console.
     pub fn exe(&self) -> Vec<u8> {
         let mut decompress = ZlibDecoder::new(&self.compressed_exe[..]);
         let mut exe = Vec::new();
@@ -183,60 +204,86 @@ impl Psf {
         exe
     }
 
-    pub fn fancy_exe(&self) -> Result<Vec<u8>, PsfError> {
-        // TODO: Do a buncha shit
-        let initial_exe = self.exe();
-        let initial_exe_header = ExeHeader::from_slice(&initial_exe);
-        if initial_exe_header.is_none() {
-            return Err(PsfError::ExeMergeError);
+    fn fancy_exe_inner(&self, recursion_depth: u8) -> Result<Vec<u8>, PsfError> {
+        if recursion_depth > 10 {
+            return Err(PsfError::RecursionError);
         }
-        let initial_exe_header = initial_exe_header.unwrap();
-        let initial_exe_text = &initial_exe[0x800..0x800 + initial_exe_header.len as usize];
 
-        //println!("Initial EXE: dst {:x}, len {:x}, sp {:x}", initial_exe_header.dst, initial_exe_header.len, initial_exe_header.sp);
+        let initial_exe = self.exe();
+        let initial_exe_header = match ExeHeader::from_slice(&initial_exe) {
+            Some(x) => x,
+            None => return Err(PsfError::ExeMergeError),
+        };
+        let initial_exe_text = &initial_exe[0x800..0x800 + initial_exe_header.len as usize];
 
         let mut working_exe_header = initial_exe_header;
         let mut working_exe_text = initial_exe_text.to_vec();
 
-        // TODO: Support _libN tags and recursion
-        if let Some(psf_or_error) = self.next_psf() {
+        // Process "_lib" tag, use resulting EXE as new working EXE,
+        // including its initial register values
+        if let Some(psf_or_error) = self.open_lib(0) {
             let psf = psf_or_error?;
-            let lib_exe = psf.exe();
-            let lib_exe_header = ExeHeader::from_slice(&lib_exe);
-            if lib_exe_header.is_none() {
-                return Err(PsfError::ExeMergeError);
-            }
-            let lib_exe_header = lib_exe_header.unwrap();
-            //println!("Lib EXE: dst {:x}, len {:x}, sp {:x}", lib_exe_header.dst, lib_exe_header.len, lib_exe_header.sp);
+            let lib_exe = psf.fancy_exe_inner(recursion_depth + 1)?;
+            let lib_exe_header = match ExeHeader::from_slice(&lib_exe) {
+                Some(x) => x,
+                None => return Err(PsfError::ExeMergeError),
+            };
             let lib_exe_text = &lib_exe[0x800..0x800 + lib_exe_header.len as usize];
-            let new_exe = merge_exes(lib_exe_text, lib_exe_header,
-                                     initial_exe_text, initial_exe_header);
-            working_exe_header = new_exe.1;
-            working_exe_text = new_exe.0;
+            let (new_exe_text, new_exe_header) = merge_exes(lib_exe_text, lib_exe_header,
+                    initial_exe_text, initial_exe_header);
+            working_exe_header = new_exe_header;
+            working_exe_text = new_exe_text;
+        }
+
+        // Process "_libN" tags, preserving the old PC and SP.
+        // Uh... up to "_lib9" is quite arbitrary, but we have to limit it to
+        // something, right?
+        for i in 2..10 {
+            if let Some(psf_or_error) = self.open_lib(i) {
+                let psf = psf_or_error?;
+                let lib_exe = psf.fancy_exe_inner(recursion_depth + 1)?;
+                let lib_exe_header = match ExeHeader::from_slice(&lib_exe) {
+                    Some(x) => x,
+                    None => return Err(PsfError::ExeMergeError),
+                };
+                let lib_exe_text = &lib_exe[0x800..0x800 + lib_exe_header.len as usize];
+                let (new_exe_text, new_exe_header) = merge_exes(&working_exe_text, working_exe_header,
+                        lib_exe_text, lib_exe_header);
+                working_exe_header = new_exe_header;
+                working_exe_text = new_exe_text;
+            } else {
+                break;
+            }
         }
 
         // Build complete EXE from header and text
         let mut final_exe = vec![0; 0x800 + working_exe_header.len as usize];
         (&mut final_exe[0..0x800]).write_all(&initial_exe[0..0x800]).unwrap();
-        (&mut final_exe[16..20]).write_u32::<LittleEndian>(working_exe_header.pc).unwrap();
-        (&mut final_exe[24..28]).write_u32::<LittleEndian>(working_exe_header.dst).unwrap();
-        (&mut final_exe[28..32]).write_u32::<LittleEndian>(working_exe_header.len).unwrap();
-        (&mut final_exe[48..52]).write_u32::<LittleEndian>(working_exe_header.sp).unwrap();
-        (&mut final_exe[0x800..]).write_all(&working_exe_text);
+        (&mut final_exe[16..20]).write_u32::<LittleEndian>(working_exe_header.pc)?;
+        (&mut final_exe[24..28]).write_u32::<LittleEndian>(working_exe_header.dst)?;
+        (&mut final_exe[28..32]).write_u32::<LittleEndian>(working_exe_header.len)?;
+        (&mut final_exe[48..52]).write_u32::<LittleEndian>(working_exe_header.sp)?;
+        (&mut final_exe[0x800..]).write_all(&working_exe_text)?;
         Ok(final_exe)
     }
 
+    /// Returns a reference to a [HashMap](std::collections::HashMap) mapping all tags contained in the PSF
+    /// to their values.
+    ///
+    /// # Example
+    /// If the PSF contains a `title` tag, you can extract the title using `psf.tags.get("title")`.
     pub fn tags(&self) -> &HashMap<String, String> {
         &self.tags
     }
 
-    pub fn is_checksum_valid(&self) -> bool {
-        crc::crc32::checksum_ieee(&self.compressed_exe) == self.exe_crc32
-    }
-
-    pub fn next_psf(&self) -> Option<Result<Psf, PsfError>> {
-        if let Some(next_file_name) = self.tags.get("_lib") {
-            let mut path_to_file = 
+    fn open_lib(&self, n: u8) -> Option<Result<Psf, PsfError>> {
+        let tag = if n < 2 {
+            "_lib".to_owned()
+        } else {
+            format!("_lib{}", n)
+        };
+        if let Some(next_file_name) = self.tags.get(&tag) {
+            let mut path_to_file =
                 if let Some(folder) = self.path.parent() {
                     folder.to_path_buf()
                 } else {
@@ -247,10 +294,6 @@ impl Psf {
         } else {
             None
         }
-    }
-
-    pub fn get_reserved_area(&self) -> &[u8] {
-        &self.reserved_area
     }
 }
 

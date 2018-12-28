@@ -18,12 +18,4 @@ fn main() {
     println!("");
 
     println!("Checksum valid: {}", psf.is_checksum_valid());
-
-    if let Some(Ok(next_psf)) = psf.next_psf() {
-        println!("");
-        println!("Library PSF:");
-        for (key, value) in next_psf.tags().iter() {
-            println!("{}: {}", key, value);
-        }
-    }
 }
