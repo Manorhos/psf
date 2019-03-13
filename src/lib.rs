@@ -229,8 +229,17 @@ impl Psf {
                 None => return Err(PsfError::ExeMergeError),
             };
             let lib_exe_text = &lib_exe[0x800..0x800 + lib_exe_header.len as usize];
-            let (new_exe_text, new_exe_header) = merge_exes(lib_exe_text, lib_exe_header,
-                    initial_exe_text, initial_exe_header);
+
+            // We want to use the PC and SP from the first _lib EXE we encounter,
+            // so we have to avoid letting _lib EXEs from overriding the
+            // PC and SP when recursing deeper.
+            let (new_exe_text, new_exe_header) = if recursion_depth == 0 {
+                merge_exes(lib_exe_text, lib_exe_header,
+                           initial_exe_text, initial_exe_header)
+            } else {
+                merge_exes(initial_exe_text, initial_exe_header,
+                           lib_exe_text, lib_exe_header)
+            };
             working_exe_header = new_exe_header;
             working_exe_text = new_exe_text;
         }
