@@ -4,6 +4,8 @@ extern crate quick_error;
 extern crate crc;
 extern crate flate2;
 extern crate byteorder;
+#[macro_use]
+extern crate log;
 
 use std::io::{Read, Write};
 use std::fs::File;
@@ -115,6 +117,7 @@ fn merge_exes(a_data: &[u8], a_header: ExeHeader,
               b_data: &[u8], b_header: ExeHeader) -> (Vec<u8>, ExeHeader)
 {
     let mut new_header = a_header;
+    debug!("merging {:x?} and {:x?}", a_header, b_header);
     let new_dst = min(a_header.dst, b_header.dst);
     let new_text_end = max(a_header.dst + a_header.len, b_header.dst + b_header.len);
     let new_len = new_text_end - new_dst;
@@ -127,6 +130,7 @@ fn merge_exes(a_data: &[u8], a_header: ExeHeader,
 
     let b_start = b_header.dst as usize - new_dst as usize;
     (&mut new_data[b_start..]).write_all(&b_data[0..b_header.len as usize]).unwrap();
+    debug!("new header: {:x?}", new_header);
     (new_data, new_header)
 }
 
@@ -302,6 +306,7 @@ impl Psf {
                     PathBuf::new()
                 };
             path_to_file.push(next_file_name);
+            debug!("loading lib {} with path {:?}", n, path_to_file);
             Some(Psf::from_file(path_to_file))
         } else {
             None
