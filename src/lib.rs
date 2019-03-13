@@ -273,6 +273,10 @@ impl Psf {
         }
 
         // Build complete EXE from header and text
+        let remainder = working_exe_header.len % 0x800;
+        if remainder != 0 {
+            working_exe_header.len += 0x800 - remainder;
+        }
         let mut final_exe = vec![0; 0x800 + working_exe_header.len as usize];
         (&mut final_exe[0..0x800]).write_all(&initial_exe[0..0x800]).unwrap();
         (&mut final_exe[16..20]).write_u32::<LittleEndian>(working_exe_header.pc)?;
