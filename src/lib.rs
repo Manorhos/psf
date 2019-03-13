@@ -111,12 +111,15 @@ impl ExeHeader {
 // with b taking priority over a. Destination address and length in the header
 // are adapted to the new, possibly larger EXE. PC and SP will carry over from "a".
 // a_data and b_data must contain exactly all of the text data for that specific EXE.
-fn merge_exes(a_data: &[u8], a_header: ExeHeader, b_data: &[u8], b_header: ExeHeader) -> (Vec<u8>, ExeHeader) {
+fn merge_exes(a_data: &[u8], a_header: ExeHeader,
+              b_data: &[u8], b_header: ExeHeader) -> (Vec<u8>, ExeHeader)
+{
     let mut new_header = a_header;
     let new_dst = min(a_header.dst, b_header.dst);
     let new_text_end = max(a_header.dst + a_header.len, b_header.dst + b_header.len);
     let new_len = new_text_end - new_dst;
     let mut new_data = vec![0u8; new_len as usize];
+    new_header.dst = new_dst;
     new_header.len = new_len;
 
     let a_start = a_header.dst as usize - new_dst as usize;
