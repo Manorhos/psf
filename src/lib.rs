@@ -6,6 +6,8 @@ extern crate flate2;
 extern crate byteorder;
 #[macro_use]
 extern crate log;
+extern crate chardetng;
+extern crate encoding_rs;
 
 use std::io::{Read, Write};
 use std::fs::File;
@@ -18,6 +20,8 @@ use nom::IResult::Done;
 
 use flate2::read::{ZlibDecoder};
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
+
+use chardetng::EncodingDetector;
 
 quick_error! {
     #[derive(Debug)]
@@ -153,8 +157,32 @@ impl Psf {
 
         if let Done(tags_bytes, mut psf) = rawpsf(&file_contents) {
             if let Done(tags_bytes, _) = tag_header(tags_bytes) {
-                let tags_str = std::str::from_utf8(tags_bytes)?;
-                for line in tags_str.lines() {
+                // Check if the encoding is UTF-8 and if not, transcode to UTF-8.
+                let tags_str_utf8 = {
+                    let tmp_tags_str = String::from_utf8_lossy(tags_bytes);
+                    let is_utf8 = tmp_tags_str.lines().any(|x| x.starts_with("utf8="));
+                    if is_utf8 {
+                        tmp_tags_str.to_string()
+                    } else {
+                        let mut detector = EncodingDetector::new();
+                        detector.feed(&tags_bytes, true);
+                        let encoding = detector.guess(None, true);
+
+                        debug!("Detected encoding: {:?}", encoding);
+
+                        if encoding == encoding_rs::UTF_8 {
+                            tmp_tags_str.to_string()
+                        } else {
+                            let (cow, _, had_errors) = encoding.decode(&tags_bytes);
+                            if had_errors {
+                                warn!("Errors occurred during decoding.");
+                            }
+                            cow.to_string()
+                        }
+                    }
+                };
+
+                for line in tags_str_utf8.lines() {
                     let split_pos;
                     if let Some(pos) = line.find('=') {
                         split_pos = pos;

@@ -11,5 +11,8 @@ nom = "3.2.1"
 byteorder = "1.2.2"
 log = "0.4"
 
+encoding_rs = "0.8.31"
+chardetng = "*"
+
 [dev-dependencies]
 env_logger = { version = "0.6", default-features = false, features = ["atty", "termcolor"] }
