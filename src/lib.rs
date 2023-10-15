@@ -15,10 +15,11 @@ use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 use std::cmp::{min, max};
 
-use nom::*;
-use nom::IResult::Done;
+use nom::bytes::complete::{tag, take};
+use nom::number::complete::le_u32;
+use nom::{IResult, Finish};
 
-use flate2::read::{ZlibDecoder};
+use flate2::read::ZlibDecoder;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 
 use chardetng::EncodingDetector;
@@ -54,28 +55,35 @@ fn is_whitespace(c: char) -> bool {
     c as u8 >= 1 && c as u8 <= 0x20
 }
 
-named!(rawpsf <&[u8], Psf>,
-    do_parse!(
-        tag!(b"PSF") >>
-        tag!([0x01]) >> // PS1 only at the moment
-        reserved_len: le_u32 >>
-        exe_len: le_u32 >>
-        exe_crc32: le_u32 >>
-        reserved: take!(reserved_len) >>
-        exe: take!(exe_len) >>
-        (
-            Psf {
-                path: PathBuf::new(),
-                exe_crc32: exe_crc32,
-                _reserved_area: exe.to_vec(),
-                compressed_exe: exe.to_vec(),
-                tags: HashMap::new(),
-            }
-        )
-    )
-);
+fn rawpsf(input: &[u8]) -> IResult<&[u8], Psf> {
+    let (input, _) = tag(b"PSF")(input)?;
 
-named!(tag_header, tag!("[TAG]"));
+    // PS1 only at the moment
+    let (input, _) = tag([0x01])(input)?;
+
+    let (input, reserved_len) = le_u32(input)?;
+    let (input, exe_len) = le_u32(input)?;
+    let (input, exe_crc32) = le_u32(input)?;
+
+    let (input, reserved) = take(reserved_len)(input)?;
+    let (input, exe) = take(exe_len)(input)?;
+
+    let psf = Psf {
+        path: PathBuf::new(),
+        exe_crc32: exe_crc32,
+        _reserved_area: reserved.to_vec(),
+        compressed_exe: exe.to_vec(),
+        tags: HashMap::new(),
+    };
+
+    Ok((input, psf))
+}
+
+fn tag_header(input: &[u8]) -> IResult<&[u8], ()> {
+    let (input, _) = tag("[TAG]")(input)?;
+
+    Ok((input, ()))
+}
 
 #[derive(Copy, Clone, Debug)]
 struct ExeHeader {
@@ -155,8 +163,8 @@ impl Psf {
         let mut file_contents = Vec::new();
         file.read_to_end(&mut file_contents)?;
 
-        if let Done(tags_bytes, mut psf) = rawpsf(&file_contents) {
-            if let Done(tags_bytes, _) = tag_header(tags_bytes) {
+        if let Ok((tags_bytes, mut psf)) = rawpsf(&file_contents).finish() {
+            if let Ok((tags_bytes, _)) = tag_header(tags_bytes).finish() {
                 // Check if the encoding is UTF-8 and if not, transcode to UTF-8.
                 let tags_str_utf8 = {
                     let tmp_tags_str = String::from_utf8_lossy(tags_bytes);
