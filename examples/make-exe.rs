@@ -14,7 +14,7 @@ use std::io::Write;
 
 fn main() {
     env_logger::builder()
-        .default_format_timestamp(false)
+        .format_timestamp(None)
         .filter_level(LevelFilter::Debug)
         .init();
 
