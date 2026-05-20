@@ -223,7 +223,8 @@ impl Psf {
     /// Returns `true` if the contained CRC32 checksum matches the one we calculate
     /// from the compressed EXE, `false` otherwise.
     pub fn is_checksum_valid(&self) -> bool {
-        crc::crc32::checksum_ieee(&self.compressed_exe) == self.exe_crc32
+        const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+        CRC.checksum(&self.compressed_exe) == self.exe_crc32
     }
 
     /// Converts the PSF file into a ready-to-run PS-EXE, merging possibly
