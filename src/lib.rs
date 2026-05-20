@@ -28,25 +28,23 @@ quick_error! {
     #[derive(Debug)]
     pub enum PsfError {
         Io(err: std::io::Error) {
-            cause(err)
-            description(err.description())
+            source(err)
             display("I/O error: {}", err)
             from()
         }
         Utf8(err: std::str::Utf8Error) {
-            cause(err)
-            description(err.description())
+            source(err)
             display("UTF8 error: {}", err)
             from()
         }
         ParseError {
-            description("General PSF parse error")
+            display("General PSF parse error")
         }
         ExeMergeError {
-            description("Cannot merge EXEs")
+            display("Cannot merge EXEs")
         }
         RecursionError {
-            description("Maximum recursion depth exceeded")
+            display("Maximum recursion depth exceeded")
         }
     }
 }

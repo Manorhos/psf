@@ -6,7 +6,7 @@ authors = ["Manorhos <n.h.wiessner@gmail.com>"]
 [dependencies]
 flate2 = "1.0.1"
 crc = "3.4.0"
-quick-error = "^1.0.0"
+quick-error = "2.0.1"
 nom = "7"
 byteorder = "1.2.2"
 log = "0.4"
