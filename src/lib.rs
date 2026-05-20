@@ -22,7 +22,7 @@ use nom::{IResult, Finish};
 use flate2::read::ZlibDecoder;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 
-use chardetng::EncodingDetector;
+use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 
 quick_error! {
     #[derive(Debug)]
@@ -172,9 +172,9 @@ impl Psf {
                     if is_utf8 {
                         tmp_tags_str.to_string()
                     } else {
-                        let mut detector = EncodingDetector::new();
+                        let mut detector = EncodingDetector::new(Iso2022JpDetection::Allow);
                         detector.feed(&tags_bytes, true);
-                        let encoding = detector.guess(None, true);
+                        let encoding = detector.guess(None, Utf8Detection::Allow);
 
                         debug!("Detected encoding: {:?}", encoding);
 
