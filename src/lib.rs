@@ -1,28 +1,17 @@
-extern crate nom;
-#[macro_use]
-extern crate quick_error;
-extern crate crc;
-extern crate flate2;
-extern crate byteorder;
-#[macro_use]
-extern crate log;
-extern crate chardetng;
-extern crate encoding_rs;
-
 use std::io::{Read, Write};
 use std::fs::File;
 use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 use std::cmp::{min, max};
 
+use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
+use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
+use flate2::read::ZlibDecoder;
+use log::{debug,warn};
 use nom::bytes::complete::{tag, take};
 use nom::number::complete::le_u32;
 use nom::{IResult, Finish};
-
-use flate2::read::ZlibDecoder;
-use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-
-use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
+use quick_error::quick_error;
 
 quick_error! {
     #[derive(Debug)]

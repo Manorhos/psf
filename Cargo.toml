@@ -2,6 +2,7 @@
 name = "psf"
 version = "0.1.0"
 authors = ["Manorhos <n.h.wiessner@gmail.com>"]
+edition = "2024"
 
 [dependencies]
 flate2 = "1.0.1"
